@@ -42,7 +42,7 @@ spec:
               import time
               import psutil 
               def upload():
-                conn_str = "DefaultEndpointsProtocol=https;AccountName=akslogsovidiu;AccountKey=zlKgHLkZhL3pwSqxlbbkp9G95HRgNUnNKtZnEfcApSCw2xNTXKXI6lIZd6R3HADiIyRu914cPZx2+ASt9iFkrQ==;EndpointSuffix=core.windows.net"
+                conn_str = ""
                 hostName = sp.getoutput("hostname")
                 file_client = ShareFileClient.from_connection_string(conn_str=conn_str, share_name="logs", file_path=hostName)
                 with open("/tmp/akslogs.tgz", "rb") as source_file:
