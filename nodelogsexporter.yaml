@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    component: nodeperfmon
+  name: nodelogsexporter
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      component: nodeperfmon
+      tier: node
+  template:
+    metadata:
+      labels:
+        component: nodeperfmon
+        tier: node
+    spec:
+      #nodeName: $nodeName
+      containers:
+        - command:
+            - nsenter
+            - --target
+            - "1"
+            - --mount
+            - --uts
+            - --ipc
+            - --net
+            - --pid
+            - --
+            - sh
+            - -c
+            - |
+              cd /tmp
+              cat << EOF > ./nodeperfmon.py
+              from azure.storage.fileshare import ShareFileClient
+              from os.path import exists
+              from datetime import datetime
+              import os
+              import subprocess as sp
+              import socket
+              import time
+              import psutil 
+              def upload():
+                conn_str = "DefaultEndpointsProtocol=https;AccountName=akslogsovidiu;AccountKey=zlKgHLkZhL3pwSqxlbbkp9G95HRgNUnNKtZnEfcApSCw2xNTXKXI6lIZd6R3HADiIyRu914cPZx2+ASt9iFkrQ==;EndpointSuffix=core.windows.net"
+                hostName = sp.getoutput("hostname")
+                file_client = ShareFileClient.from_connection_string(conn_str=conn_str, share_name="logs", file_path=hostName)
+                with open("/tmp/akslogs.tgz", "rb") as source_file:
+                  file_client.upload_file(source_file)
+                  print("Done Uploading")
+                  time.sleep(1)
+              def node_backup():
+                backupLogs = sp.getoutput("tar -cvzf /tmp/akslogs.tgz /var/log/journal /var/log/azure-vnet* /tmp/aksreport /var/log/containers /var/log/syslog /var/log/*.log /var/log/syslog /var/log/messages /var/log/azure" )
+                print(backupLogs)
+              def perfmon():
+                print ("Running Performance Monitor")
+                now = datetime.now()
+                dt_string = now.strftime("%d-%m-%Y %H-%M-%S")
+                CPU_check = psutil.cpu_percent(60)
+                mem_check = psutil.virtual_memory()[2]
+                print("Memory Load: ", mem_check)
+                cpu_report = sp.getoutput("top -b -n 1")
+                time.sleep(1)
+                mem_report = sp.getoutput("free -h")
+                time.sleep(1)
+                running_pods = sp.getoutput("crictl ps")
+                with open("/tmp/aksreport", "a") as f:
+                  f.write(dt_string)
+                  f.write("\n")
+                  f.write(running_pods)
+                  f.write("\n")
+                  f.write(cpu_report)
+                  f.write("\n")
+                  f.write(mem_report)
+                  f.write("\n")
+                  f.close()
+              if __name__ == '__main__':
+                # 24 Hour Time Interval for complete running of this script
+                t_end = time.time() + 60 * 1440
+                while time.time() < t_end:
+                  perfmon()
+                  node_backup()
+                  upload()
+                  # Interval of tests. 
+                  time.sleep(60)
+              EOF
+              echo "Installing Python Libraries"
+              apt update
+              apt install python3-pip -y
+              pip3 install azure-storage-file-share
+              pip3 install psutil
+              echo "Starting Monitoring"
+              python3 /tmp/nodeperfmon.py
+              sleep 3600
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          name: disable-node-exporter-service
+          resources:
+            requests:
+              cpu: 10m
+          securityContext:
+            privileged: true
+      hostPID: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      restartPolicy: Always
+  updateStrategy:
+    type: OnDelete
